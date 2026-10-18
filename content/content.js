@@ -625,6 +625,10 @@
     if (request.action === 'STATE_CHANGED') {
       syncState();
       sendResponse({ acknowledged: true });
+    } else if (request.action === 'SHOW_TOAST') {
+      showToast(request.message, request.toastType || 'success');
+      syncState();
+      sendResponse({ acknowledged: true });
     } else if (request.action === 'SET_VIDEO_LOOP') {
       const video = document.querySelector('video');
       if (video) {
@@ -637,6 +641,13 @@
       sendResponse({ looped: isVideoLooped() });
     }
     return true;
+  });
+
+  // Sync state when storage changes (e.g. from context menu, popup, or background)
+  chrome.storage?.onChanged.addListener((changes, area) => {
+    if (area === 'local' && (changes.youtubeQueue || changes.currentIndex || changes.settings)) {
+      syncState();
+    }
   });
 
   // Initialize

@@ -10,6 +10,11 @@ A Chrome extension that lets you queue YouTube videos as you find them, reorder 
   - Quickly copies the clean YouTube URL (`https://www.youtube.com/watch?v=...`) directly to your clipboard and appends the video to your queue with title, channel name, and thumbnail.
   - Also supports manual pasting of any YouTube URL, short (`/shorts/`), or shortened link (`youtu.be`).
 
+- **🖱️ Right-Click Context Menu ("Add to YouTube Queue")**:
+  - Right-click directly on any video thumbnail, video title link, or YouTube Shorts link to instantly queue it from Chrome's native context menu.
+  - Also works by right-clicking anywhere on a watch page or video player to add the currently playing video.
+  - Shows an immediate on-screen toast confirmation and updates the badge count and queue in real-time.
+
 - **🔍 In-Page Discovery & Quick Add ("Queue Videos Found")**:
   - Automatically adds a sleek **+ Queue** hover button on YouTube video cards across the Home feed, Search results, Channel pages, and Recommendations.
   - Adds a dedicated **Queue** button right in YouTube's watch page action bar.

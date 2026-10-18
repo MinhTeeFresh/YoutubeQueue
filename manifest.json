@@ -13,7 +13,8 @@
     "tabs",
     "activeTab",
     "alarms",
-    "clipboardWrite"
+    "clipboardWrite",
+    "contextMenus"
   ],
   "host_permissions": [
     "*://*.youtube.com/*",

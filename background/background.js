@@ -12,6 +12,35 @@ const DEFAULT_SETTINGS = {
   badgeCountEnabled: true
 };
 
+// Setup right-click context menu options
+function setupContextMenu() {
+  if (!chrome.contextMenus) return;
+  chrome.contextMenus.removeAll(() => {
+    // 1. Right-click on any YouTube video link / thumbnail
+    chrome.contextMenus.create({
+      id: 'ytq_add_link_to_queue',
+      title: 'Add to YouTube Queue',
+      contexts: ['link'],
+      targetUrlPatterns: [
+        '*://*.youtube.com/watch*',
+        '*://*.youtube.com/shorts*',
+        '*://youtu.be/*'
+      ]
+    });
+
+    // 2. Right-click on the watch page or video player
+    chrome.contextMenus.create({
+      id: 'ytq_add_page_to_queue',
+      title: 'Add current video to Queue',
+      contexts: ['page', 'video'],
+      documentUrlPatterns: [
+        '*://*.youtube.com/watch*',
+        '*://*.youtube.com/shorts*'
+      ]
+    });
+  });
+}
+
 // Initialize default storage on installation
 chrome.runtime.onInstalled.addListener(async () => {
   const data = await chrome.storage.local.get(['youtubeQueue', 'currentIndex', 'settings']);
@@ -31,8 +60,12 @@ chrome.runtime.onInstalled.addListener(async () => {
 
   await chrome.storage.local.set(updates);
   updateBadge(updates.youtubeQueue || []);
+  setupContextMenu();
   console.log('[YoutubeQueue] Background worker initialized.');
 });
+
+// Also initialize context menus on worker startup
+setupContextMenu();
 
 // Update extension icon badge
 async function updateBadge(queue) {
@@ -372,3 +405,34 @@ chrome.storage.onChanged.addListener((changes, area) => {
     updateBadge(changes.youtubeQueue.newValue || []);
   }
 });
+
+// Handle right-click context menu clicks
+chrome.contextMenus?.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId === 'ytq_add_link_to_queue' || info.menuItemId === 'ytq_add_page_to_queue') {
+    const rawUrl = info.linkUrl || info.srcUrl || info.pageUrl || (tab ? tab.url : null);
+    if (!rawUrl) return;
+
+    const res = await addToQueue(rawUrl);
+
+    // Notify tab to display on-screen toast notification
+    if (tab && tab.id) {
+      const itemTitle = res.item ? res.item.title : 'Video';
+      const truncatedTitle = itemTitle.length > 35 ? itemTitle.slice(0, 35) + '...' : itemTitle;
+      const message = res.alreadyInQueue
+        ? `"${truncatedTitle}" already in queue!`
+        : (res.success ? `Added "${truncatedTitle}" to queue!` : (res.error || 'Could not add video to queue'));
+      const toastType = res.alreadyInQueue ? 'info' : (res.success ? 'success' : 'info');
+
+      try {
+        await chrome.tabs.sendMessage(tab.id, {
+          action: 'SHOW_TOAST',
+          message,
+          toastType
+        });
+      } catch (err) {
+        // Content script may not be loaded on this tab
+      }
+    }
+  }
+});
+
