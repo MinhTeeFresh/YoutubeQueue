@@ -6,9 +6,7 @@
   top: 8px;
   right: 8px;
   z-index: 999;
-  background: rgba(18, 18, 24, 0.88);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgba(18, 18, 24, 0.92);
   color: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
@@ -27,25 +25,30 @@
               background 0.2s ease,
               border-color 0.2s ease;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  pointer-events: auto;
+  pointer-events: none;
   user-select: none;
 }
 
 /* Show on card/thumbnail hover */
-*:hover > .ytq-thumb-btn,
 ytd-thumbnail:hover .ytq-thumb-btn,
+#thumbnail:hover .ytq-thumb-btn,
 ytd-rich-item-renderer:hover .ytq-thumb-btn,
 ytd-video-renderer:hover .ytq-thumb-btn,
 ytd-compact-video-renderer:hover .ytq-thumb-btn,
+ytd-grid-video-renderer:hover .ytq-thumb-btn,
+yt-lockup-view-model:hover .ytq-thumb-btn,
 .ytq-thumb-btn:hover {
   opacity: 1;
   transform: translateY(0) scale(1);
+  pointer-events: auto;
 }
 
 .ytq-thumb-btn:hover {
   background: #ff0033;
   border-color: #ff335c;
   box-shadow: 0 4px 16px rgba(255, 0, 51, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .ytq-thumb-btn.ytq-added {

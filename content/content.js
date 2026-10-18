@@ -58,9 +58,17 @@
     return match ? match[1] : null;
   }
 
+  let cachedMoviePlayer = null;
+  function getMoviePlayer() {
+    if (!cachedMoviePlayer || !document.contains(cachedMoviePlayer)) {
+      cachedMoviePlayer = document.querySelector('#movie_player');
+    }
+    return cachedMoviePlayer;
+  }
+
   // Check if current video is set to loop (via HTML5 video, YouTube player API, or extension setting)
-  function isVideoLooped() {
-    const video = document.querySelector('video');
+  function isVideoLooped(videoElem) {
+    const video = videoElem || currentVideoElement || document.querySelector('video');
     if (!video) return false;
 
     // 1. Check HTML5 standard video loop property / attribute
@@ -70,7 +78,7 @@
 
     // 2. Check YouTube player API if available
     try {
-      const player = document.querySelector('#movie_player');
+      const player = getMoviePlayer();
       if (player) {
         if (typeof player.isLooping === 'function' && player.isLooping()) {
           return true;
@@ -116,19 +124,35 @@
     }, duration);
   }
 
+  // Check if extension context is still active (prevents errors if extension was reloaded)
+  function isExtensionValid() {
+    try {
+      return Boolean(chrome.runtime && chrome.runtime.id);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Safe wrapper for chrome.runtime.sendMessage to prevent unhandled rejections and context invalidation errors
+  async function safeSendMessage(message) {
+    if (!isExtensionValid()) return null;
+    try {
+      return await chrome.runtime.sendMessage(message);
+    } catch (e) {
+      // Background worker might be sleeping, waking up, or extension reloaded
+      return null;
+    }
+  }
+
   // Sync state from background
   async function syncState() {
-    try {
-      const res = await chrome.runtime.sendMessage({ action: 'GET_STATE' });
-      if (res) {
-        state.queue = res.queue || [];
-        state.currentIndex = typeof res.currentIndex === 'number' ? res.currentIndex : -1;
-        state.settings = res.settings || state.settings;
-        updateFloatingHUD();
-        updateWatchButtonState();
-      }
-    } catch (e) {
-      // Worker sleeping or reloading
+    const res = await safeSendMessage({ action: 'GET_STATE' });
+    if (res) {
+      state.queue = res.queue || [];
+      state.currentIndex = typeof res.currentIndex === 'number' ? res.currentIndex : -1;
+      state.settings = res.settings || state.settings;
+      updateFloatingHUD();
+      updateWatchButtonState();
     }
   }
 
@@ -247,12 +271,11 @@
     activeOverlay = null;
   }
 
-  function executePlayNext() {
-    chrome.runtime.sendMessage({ action: 'PLAY_NEXT' }, (res) => {
-      if (res && res.success) {
-        syncState();
-      }
-    });
+  async function executePlayNext() {
+    const res = await safeSendMessage({ action: 'PLAY_NEXT' });
+    if (res && res.success) {
+      syncState();
+    }
   }
 
   let lastTrackedTime = 0;
@@ -300,7 +323,7 @@
         !isTimerTriggered
       ) {
         // If video is looped, hold queue unless specified
-        if (isVideoLooped() && state.settings.respectVideoLoop !== false) {
+        if (isVideoLooped(video) && state.settings.respectVideoLoop !== false) {
           return;
         }
 
@@ -316,18 +339,20 @@
 
   // Inject "+ Queue" button on YouTube video cards/thumbnails
   function processVideoCards() {
-    // Select YouTube video card containers
+    // Select YouTube video card containers that have not been processed yet
     const cardSelectors = [
-      'ytd-rich-item-renderer',
-      'ytd-video-renderer',
-      'ytd-compact-video-renderer',
-      'ytd-grid-video-renderer',
-      'yt-lockup-view-model'
+      'ytd-rich-item-renderer:not([data-ytq-processed])',
+      'ytd-video-renderer:not([data-ytq-processed])',
+      'ytd-compact-video-renderer:not([data-ytq-processed])',
+      'ytd-grid-video-renderer:not([data-ytq-processed])',
+      'yt-lockup-view-model:not([data-ytq-processed])'
     ];
 
     const cards = document.querySelectorAll(cardSelectors.join(','));
+    if (!cards || cards.length === 0) return;
+
     cards.forEach(card => {
-      if (card.dataset.ytqProcessed) return;
+      card.dataset.ytqProcessed = 'true';
 
       const link = card.querySelector('a#thumbnail, a.ytd-thumbnail, a[href*="/watch?v="]');
       if (!link) return;
@@ -366,7 +391,7 @@
         btn.classList.add('ytq-added');
         btn.innerHTML = `${ICONS.check}<span>Added</span>`;
 
-        const res = await chrome.runtime.sendMessage({
+        const res = await safeSendMessage({
           action: 'ADD_TO_QUEUE',
           video: { id: videoId, title, channel, thumbnail }
         });
@@ -413,7 +438,7 @@
       const channelElem = document.querySelector('#channel-name a, ytd-channel-name a');
       const channel = channelElem ? channelElem.textContent.trim() : 'YouTube';
 
-      const res = await chrome.runtime.sendMessage({
+      const res = await safeSendMessage({
         action: 'ADD_TO_QUEUE',
         video: { id: vId, title, channel, thumbnail: `https://img.youtube.com/vi/${vId}/mqdefault.jpg` }
       });
@@ -489,7 +514,7 @@
         video.loop = nowLooped;
       }
       state.settings.loopCurrentVideo = nowLooped;
-      await chrome.runtime.sendMessage({
+      await safeSendMessage({
         action: 'UPDATE_SETTINGS',
         settings: { loopCurrentVideo: nowLooped }
       });
@@ -502,12 +527,14 @@
       );
     });
 
-    hud.querySelector('#ytq-hud-prev').addEventListener('click', () => {
-      chrome.runtime.sendMessage({ action: 'PLAY_PREV' }, syncState);
+    hud.querySelector('#ytq-hud-prev').addEventListener('click', async () => {
+      await safeSendMessage({ action: 'PLAY_PREV' });
+      syncState();
     });
 
-    hud.querySelector('#ytq-hud-next').addEventListener('click', () => {
-      chrome.runtime.sendMessage({ action: 'PLAY_NEXT' }, syncState);
+    hud.querySelector('#ytq-hud-next').addEventListener('click', async () => {
+      await safeSendMessage({ action: 'PLAY_NEXT' });
+      syncState();
     });
 
     hud.querySelector('#ytq-hud-play').addEventListener('click', () => {
@@ -568,6 +595,11 @@
 
   // Handle SPA YouTube navigation
   function handleNavigation() {
+    if (!isExtensionValid()) {
+      if (observer) observer.disconnect();
+      return;
+    }
+
     const newId = extractId(window.location.href);
     if (newId !== currentVideoId) {
       currentVideoId = newId;
@@ -575,7 +607,7 @@
       dismissOverlay();
 
       if (newId) {
-        chrome.runtime.sendMessage({ action: 'REPORT_CURRENT_VIDEO', videoId: newId });
+        safeSendMessage({ action: 'REPORT_CURRENT_VIDEO', videoId: newId });
       }
     }
 
@@ -604,24 +636,87 @@
     return str.length > max ? str.slice(0, max) + '...' : str;
   }
 
-  // MutationObserver to catch dynamically loaded YouTube video cards
-  const observer = new MutationObserver((mutations) => {
-    let shouldProcessCards = false;
-    for (const m of mutations) {
-      if (m.addedNodes.length > 0) {
-        shouldProcessCards = true;
-        break;
+  let mutationDebounceTimer = null;
+  let isProcessingMutations = false;
+
+  // Filter mutations and debounce processing to eliminate CPU spikes during video playback
+  function handleMutations(mutations) {
+    if (!isExtensionValid()) {
+      if (observer) observer.disconnect();
+      return;
+    }
+    if (isProcessingMutations) return;
+
+    let hasRelevantCards = false;
+
+    for (let i = 0; i < mutations.length; i++) {
+      const m = mutations[i];
+      if (!m.addedNodes || m.addedNodes.length === 0) continue;
+
+      const target = m.target;
+      // Skip all mutations originating inside player, captions, tooltips, or extension HUD
+      if (target && target.closest) {
+        if (
+          target.closest('#movie_player') ||
+          target.closest('.html5-video-player') ||
+          target.closest('.ytp-caption-window-container') ||
+          target.closest('.ytp-chrome-bottom') ||
+          target.closest('.ytp-chrome-top') ||
+          target.closest('#ytq-floating-hud') ||
+          target.closest('#ytq-autoplay-overlay') ||
+          target.closest('#ytq-toast-container')
+        ) {
+          continue;
+        }
       }
+
+      // Check if any added element is relevant (not our own injected buttons or overlays)
+      for (let j = 0; j < m.addedNodes.length; j++) {
+        const node = m.addedNodes[j];
+        if (node.nodeType === 1) { // ELEMENT_NODE
+          if (
+            node.classList?.contains('ytq-thumb-btn') ||
+            node.id === 'ytq-watch-queue-btn' ||
+            node.id?.startsWith('ytq-')
+          ) {
+            continue;
+          }
+          hasRelevantCards = true;
+          break;
+        }
+      }
+
+      if (hasRelevantCards) break;
     }
-    if (shouldProcessCards) {
-      processVideoCards();
-      injectWatchPageButton();
-      attachVideoListeners();
+
+    if (!hasRelevantCards) return;
+
+    if (mutationDebounceTimer) {
+      clearTimeout(mutationDebounceTimer);
     }
-  });
+
+    mutationDebounceTimer = setTimeout(() => {
+      mutationDebounceTimer = null;
+      isProcessingMutations = true;
+      try {
+        processVideoCards();
+        injectWatchPageButton();
+        if (!currentVideoElement || !document.contains(currentVideoElement)) {
+          attachVideoListeners();
+        }
+      } finally {
+        isProcessingMutations = false;
+      }
+    }, 300);
+  }
+
+  // MutationObserver to catch dynamically loaded YouTube video cards
+  const observer = new MutationObserver(handleMutations);
 
   // Listen to messages from background / popup
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (!request || !request.action) return false;
+
     if (request.action === 'STATE_CHANGED') {
       syncState();
       sendResponse({ acknowledged: true });
@@ -630,21 +725,22 @@
       syncState();
       sendResponse({ acknowledged: true });
     } else if (request.action === 'SET_VIDEO_LOOP') {
-      const video = document.querySelector('video');
+      const video = currentVideoElement || document.querySelector('video');
       if (video) {
         video.loop = !!request.loop;
       }
       state.settings.loopCurrentVideo = !!request.loop;
       updateFloatingHUD();
-      sendResponse({ success: true, looped: isVideoLooped() });
+      sendResponse({ success: true, looped: isVideoLooped(video) });
     } else if (request.action === 'QUERY_VIDEO_LOOP') {
       sendResponse({ looped: isVideoLooped() });
     }
-    return true;
+    return false;
   });
 
   // Sync state when storage changes (e.g. from context menu, popup, or background)
   chrome.storage?.onChanged.addListener((changes, area) => {
+    if (!isExtensionValid()) return;
     if (area === 'local' && (changes.youtubeQueue || changes.currentIndex || changes.settings)) {
       syncState();
     }
