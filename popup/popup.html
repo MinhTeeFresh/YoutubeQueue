@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YouTube Queue & Autoplay</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" class="svg-icon">
+            <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12zm-7-2l5-4-5-4v8z"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>YouTube Queue</h1>
+          <span class="queue-counter" id="queueCounter">0 videos</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="btnSettingsToggle" class="icon-btn" title="Autoplay & Timer Settings">
+          <svg viewBox="0 0 24 24" class="svg-icon">
+            <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+          </svg>
+        </button>
+        <button id="btnClearQueue" class="icon-btn text-danger" title="Clear Entire Queue">
+          <svg viewBox="0 0 24 24" class="svg-icon">
+            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Prominent "Copy Current URL & Add to Queue" Action Section -->
+    <section class="action-section">
+      <button id="btnCopyCurrentUrl" class="btn btn-primary btn-copy-add" title="Copy current viewed YouTube URL to clipboard and add to queue">
+        <span class="btn-icon">
+          <svg viewBox="0 0 24 24" class="svg-icon">
+            <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+          </svg>
+        </span>
+        <div class="btn-text-wrap">
+          <span class="btn-title">Copy Current URL & Add to Queue</span>
+          <span class="btn-subtitle">Copies tab URL to clipboard + queues video</span>
+        </div>
+        <span class="btn-badge-plus">+</span>
+      </button>
+
+      <!-- Manual URL Input Accordion / Fallback -->
+      <form id="formAddManual" class="manual-input-form">
+        <div class="input-wrapper">
+          <input 
+            type="text" 
+            id="inputManualUrl" 
+            placeholder="Or paste any YouTube video / short link..." 
+            autocomplete="off" 
+            spellcheck="false"
+          />
+          <button type="submit" id="btnAddManual" class="btn-submit-add" title="Add link to queue">
+            <span>+ Add</span>
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Settings / Autoplay Timer Panel (Collapsible) -->
+    <section id="settingsPanel" class="settings-panel hidden">
+      <div class="settings-header">
+        <h3>Autoplay & Timer Settings</h3>
+        <span class="settings-tag">Smart Advance</span>
+      </div>
+
+      <!-- Autoplay Toggle Switch -->
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Autoplay Next Video</span>
+          <span class="setting-desc">Automatically advance to the next queued video</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="toggleAutoplay" checked />
+          <span class="slider round"></span>
+        </label>
+      </div>
+
+      <!-- Autoplay Trigger Mode -->
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Advance Trigger</span>
+          <span class="setting-desc">Choose when next video should play</span>
+        </div>
+        <div class="mode-select-wrap">
+          <select id="selectAutoplayMode" class="form-select">
+            <option value="video_end">When Video Ends</option>
+            <option value="timer">After Specific Time Limit</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Option A: Delay after video ends -->
+      <div class="setting-row" id="rowEndDelay">
+        <div class="setting-info">
+          <span class="setting-label">End Countdown Delay</span>
+          <span class="setting-desc">Wait before autoplaying next video</span>
+        </div>
+        <div class="preset-buttons" id="delayPresets">
+          <button type="button" class="preset-btn" data-val="0">0s</button>
+          <button type="button" class="preset-btn" data-val="3">3s</button>
+          <button type="button" class="preset-btn active" data-val="5">5s</button>
+          <button type="button" class="preset-btn" data-val="10">10s</button>
+          <button type="button" class="preset-btn" data-val="15">15s</button>
+        </div>
+      </div>
+
+      <!-- Option B: Fixed Duration Limit per video -->
+      <div class="setting-row" id="rowTimerDuration" style="display:none;">
+        <div class="setting-info">
+          <span class="setting-label">Play Each Video For</span>
+          <span class="setting-desc">Advances video after elapsed time</span>
+        </div>
+        <div class="preset-buttons" id="timerPresets">
+          <button type="button" class="preset-btn" data-val="60">1m</button>
+          <button type="button" class="preset-btn" data-val="120">2m</button>
+          <button type="button" class="preset-btn active" data-val="180">3m</button>
+          <button type="button" class="preset-btn" data-val="300">5m</button>
+          <button type="button" class="preset-btn" data-val="600">10m</button>
+        </div>
+      </div>
+
+      <!-- Respect Video Loop Option -->
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Respect Video Loop</span>
+          <span class="setting-desc">Hold queue when video is looped until specified</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="toggleRespectLoop" checked />
+          <span class="slider round"></span>
+        </label>
+      </div>
+
+      <!-- Loop Current Video Option -->
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Loop Current Video</span>
+          <span class="setting-desc">Repeat current video without advancing queue</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="toggleLoopCurrentVideo" />
+          <span class="slider round"></span>
+        </label>
+      </div>
+
+      <!-- Loop Entire Queue Option -->
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Loop Entire Queue</span>
+          <span class="setting-desc">Restart from beginning when queue finishes</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="toggleLoop" />
+          <span class="slider round"></span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Now Playing Mini Bar (When item active) -->
+    <section id="nowPlayingBar" class="now-playing-bar hidden">
+      <div class="now-playing-indicator">
+        <span class="pulse-dot"></span>
+        <span class="indicator-label">NOW PLAYING</span>
+        <span id="npLoopedBadge" class="np-looped-badge hidden">🔂 LOOPED</span>
+      </div>
+      <div class="now-playing-body">
+        <img id="npThumbnail" class="np-thumb" src="" alt="Thumbnail" />
+        <div class="np-meta">
+          <div id="npTitle" class="np-title">Video Title</div>
+          <div id="npChannel" class="np-channel">Channel Name</div>
+        </div>
+        <div class="np-controls">
+          <button id="npBtnLoopVideo" class="icon-btn mini" title="Loop Current Video (Queue won't advance)">
+            <svg viewBox="0 0 24 24" class="svg-icon"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4H13z"/></svg>
+          </button>
+          <button id="npBtnPrev" class="icon-btn mini" title="Previous Video">
+            <svg viewBox="0 0 24 24" class="svg-icon"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+          </button>
+          <button id="npBtnNext" class="icon-btn mini" title="Skip to Next Video">
+            <svg viewBox="0 0 24 24" class="svg-icon"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Queue Controls Sub-header -->
+    <div class="queue-subheader">
+      <span class="subheader-title">Up Next in Queue</span>
+      <div class="subheader-actions">
+        <button id="btnShuffle" class="btn-text-action" title="Shuffle remaining queue">
+          <svg viewBox="0 0 24 24" class="svg-icon-sm"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
+          Shuffle
+        </button>
+      </div>
+    </div>
+
+    <!-- Queue List Container -->
+    <main class="queue-container" id="queueContainer">
+      <div id="queueList" class="queue-list">
+        <!-- Rendered dynamically by popup.js -->
+      </div>
+
+      <!-- Empty State -->
+      <div id="emptyState" class="empty-state">
+        <div class="empty-icon-wrap">
+          <svg viewBox="0 0 24 24" class="empty-icon">
+            <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+          </svg>
+        </div>
+        <h3>Your Queue is Empty</h3>
+        <p>Browse YouTube and click <strong>"Copy Current URL & Add to Queue"</strong>, or use the <strong>+ Queue</strong> button directly on video thumbnails!</p>
+      </div>
+    </main>
+
+    <!-- Footer Toast Notification Container -->
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
