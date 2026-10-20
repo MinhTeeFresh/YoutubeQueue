@@ -313,103 +313,135 @@ yt-lockup-view-model:hover .ytq-thumb-btn,
   color: #ffffff;
 }
 
-/* Floating HUD Mini Queue Controller on YouTube */
+/* Floating Popout Queue Launcher on YouTube */
 #ytq-floating-hud {
   position: fixed;
   bottom: 24px;
   right: 24px;
   z-index: 999998;
-  background: rgba(18, 18, 26, 0.92);
+  background: rgba(15, 15, 23, 0.92);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 14px;
-  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 30px;
+  padding: 6px 10px 6px 6px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   color: #f3f4f6;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-size: 13px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+  font-size: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), 0 0 15px rgba(255, 0, 51, 0.15);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease;
   user-select: none;
+  cursor: grab;
 }
 
-#ytq-floating-hud.ytq-hud-minimized {
-  padding: 8px 12px;
+#ytq-floating-hud:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 0, 51, 0.45);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.65), 0 0 20px rgba(255, 0, 51, 0.25);
 }
 
-#ytq-floating-hud.ytq-hud-minimized .ytq-hud-expanded-view {
-  display: none;
+#ytq-floating-hud.ytq-dragging {
+  cursor: grabbing;
+  transform: scale(1.02);
+  opacity: 0.9;
+  transition: none;
+}
+
+.ytq-hud-main {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  padding: 2px 4px;
 }
 
 .ytq-hud-badge {
   display: flex;
   align-items: center;
-  gap: 6px;
-  background: rgba(255, 0, 51, 0.18);
-  color: #ff335c;
-  padding: 4px 8px;
-  border-radius: 8px;
+  gap: 5px;
+  background: linear-gradient(135deg, #ff0033, #c20026);
+  color: #ffffff;
+  padding: 5px 9px;
+  border-radius: 20px;
   font-weight: 700;
-  font-size: 11px;
+  font-size: 11.5px;
+  box-shadow: 0 2px 8px rgba(255, 0, 51, 0.4);
 }
 
-.ytq-hud-info {
+.ytq-hud-badge svg {
+  width: 14px;
+  height: 14px;
+  fill: #ffffff;
+}
+
+.ytq-hud-text {
   display: flex;
   flex-direction: column;
-  max-width: 220px;
+  line-height: 1.25;
 }
 
-.ytq-hud-now-playing {
+.ytq-hud-title {
+  font-weight: 700;
   font-size: 12px;
-  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: -0.1px;
+}
+
+.ytq-hud-subtitle {
+  font-size: 10.5px;
+  color: #94a3b8;
+  max-width: 140px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: #f3f4f6;
 }
 
-.ytq-hud-next {
-  font-size: 11px;
-  color: #9ca3af;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.ytq-hud-popout-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  transition: transform 0.15s ease, color 0.15s ease;
 }
 
-.ytq-hud-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #e5e7eb;
-  border-radius: 8px;
-  width: 28px;
-  height: 28px;
+.ytq-hud-main:hover .ytq-hud-popout-icon {
+  color: #ff335c;
+  transform: translate(2px, -2px);
+}
+
+.ytq-hud-popout-icon svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+}
+
+.ytq-hud-close-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.15s ease;
   padding: 0;
+  margin-left: 2px;
 }
 
-.ytq-hud-btn:hover {
-  background: rgba(255, 0, 51, 0.25);
-  border-color: #ff0033;
+.ytq-hud-close-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
   color: #ffffff;
 }
 
-.ytq-hud-btn.active {
-  background: #ff0033;
-  border-color: #ff335c;
-  color: #ffffff;
-  box-shadow: 0 0 10px rgba(255, 0, 51, 0.6);
-}
-
-.ytq-hud-btn svg {
-  width: 14px;
-  height: 14px;
+.ytq-hud-close-btn svg {
+  width: 13px;
+  height: 13px;
   fill: currentColor;
 }
 

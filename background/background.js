@@ -9,8 +9,117 @@ const DEFAULT_SETTINGS = {
   loopQueue: false,
   respectVideoLoop: true,    // If video is looped, pause queue progression until specified
   loopCurrentVideo: false,   // Loop current video continuously
-  badgeCountEnabled: true
+  badgeCountEnabled: true,
+  showFloatingHud: true      // Show quick floating popout launcher on YouTube
 };
+
+// Track active popout window ID
+let popoutWindowId = null;
+
+// Get saved bounds for the popout window
+async function getSavedPopoutBounds() {
+  const data = await chrome.storage.local.get(['popoutBounds']);
+  return data.popoutBounds || { width: 440, height: 720 };
+}
+
+// Persist popout window bounds to remember monitor and size
+async function savePopoutBounds(win) {
+  if (!win || win.state !== 'normal') return;
+  try {
+    await chrome.storage.local.set({
+      popoutBounds: {
+        left: win.left,
+        top: win.top,
+        width: win.width,
+        height: win.height
+      }
+    });
+  } catch (e) { }
+}
+
+// Open or focus the standalone popout window
+async function openOrFocusPopoutWindow() {
+  if (popoutWindowId !== null) {
+    try {
+      const existing = await chrome.windows.get(popoutWindowId);
+      if (existing) {
+        await chrome.windows.update(popoutWindowId, { focused: true });
+        return { success: true, windowId: popoutWindowId, action: 'focused' };
+      }
+    } catch (e) {
+      popoutWindowId = null;
+    }
+  }
+
+  const bounds = await getSavedPopoutBounds();
+  const createData = {
+    url: chrome.runtime.getURL('popup/popup.html?popout=true'),
+    type: 'popup',
+    width: bounds.width || 440,
+    height: bounds.height || 720,
+    focused: true
+  };
+
+  if (typeof bounds.left === 'number' && typeof bounds.top === 'number') {
+    createData.left = bounds.left;
+    createData.top = bounds.top;
+  }
+
+  try {
+    const newWin = await chrome.windows.create(createData);
+    popoutWindowId = newWin.id;
+    return { success: true, windowId: newWin.id, action: 'created' };
+  } catch (e) {
+    // If coordinate bounds fail (e.g. secondary monitor disconnected), fallback to center
+    delete createData.left;
+    delete createData.top;
+    const fallbackWin = await chrome.windows.create(createData);
+    popoutWindowId = fallbackWin.id;
+    return { success: true, windowId: fallbackWin.id, action: 'created_fallback' };
+  }
+}
+
+// Listen for window removal to reset popoutWindowId
+chrome.windows.onRemoved.addListener((windowId) => {
+  if (windowId === popoutWindowId) {
+    popoutWindowId = null;
+  }
+});
+
+// Save window position/monitor changes
+if (chrome.windows.onBoundsChanged) {
+  chrome.windows.onBoundsChanged.addListener((win) => {
+    if (win.id === popoutWindowId && win.state === 'normal') {
+      savePopoutBounds(win);
+    }
+  });
+}
+
+// Update floating HUD visibility in settings and broadcast to all open YouTube tabs
+async function updateFloatingHudVisibility(show) {
+  const data = await chrome.storage.local.get(['settings']);
+  const currentSettings = data.settings || DEFAULT_SETTINGS;
+  const updatedSettings = { ...currentSettings, showFloatingHud: !!show };
+  await chrome.storage.local.set({ settings: updatedSettings });
+
+  // Broadcast to all open YouTube tabs so all tabs immediately reflect the change
+  const ytTabs = await chrome.tabs.query({ url: '*://*.youtube.com/*' });
+  for (const tab of ytTabs) {
+    if (tab.id && tab.windowId !== popoutWindowId) {
+      try {
+        await chrome.tabs.sendMessage(tab.id, {
+          action: 'UPDATE_FLOATING_HUD_VISIBILITY',
+          show: !!show
+        });
+      } catch (e) {
+        // Tab might still be loading or inactive
+        // TODO : Add a tab reload for each tab to refresh the floating HUD
+      }
+    }
+  }
+  return { success: true, show: !!show };
+}
+
 
 // Setup right-click context menu options
 function setupContextMenu() {
@@ -87,21 +196,41 @@ async function updateBadge(queue) {
   }
 }
 
-// Helper to get active YouTube tab or any active tab
+// Helper to get active YouTube tab or any active tab (excluding popout window)
 async function getTargetTab() {
-  // First, check active tab in current window
-  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (activeTab && activeTab.url && activeTab.url.includes('youtube.com')) {
-    return activeTab;
+  // 1. Check active YouTube tab across all normal browser windows
+  const activeYtTabs = await chrome.tabs.query({ url: '*://*.youtube.com/*', active: true });
+  for (const t of activeYtTabs) {
+    if (t.windowId !== popoutWindowId) {
+      return t;
+    }
   }
 
-  // Next, check any YouTube tab in current window
-  const ytTabs = await chrome.tabs.query({ url: '*://*.youtube.com/*', currentWindow: true });
-  if (ytTabs.length > 0) {
-    return ytTabs[0];
+  // 2. Check any YouTube tab in any window (excluding popout)
+  const allYtTabs = await chrome.tabs.query({ url: '*://*.youtube.com/*' });
+  for (const t of allYtTabs) {
+    if (t.windowId !== popoutWindowId) {
+      return t;
+    }
   }
 
-  return activeTab || null;
+  // 3. Check active tab in last focused window (excluding popout)
+  try {
+    const [lastFocused] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (lastFocused && lastFocused.windowId !== popoutWindowId) {
+      return lastFocused;
+    }
+  } catch (e) { }
+
+  // 4. Any tab in any normal browser window
+  const allTabs = await chrome.tabs.query({});
+  for (const t of allTabs) {
+    if (t.windowId !== popoutWindowId && t.url && !t.url.startsWith('chrome-extension://')) {
+      return t;
+    }
+  }
+
+  return null;
 }
 
 // Navigate tab to specified queue video and set active index
@@ -126,7 +255,11 @@ async function playQueueIndex(index, targetTabId = null) {
   let tab = null;
   if (targetTabId) {
     try {
-      tab = await chrome.tabs.get(targetTabId);
+      const candidateTab = await chrome.tabs.get(targetTabId);
+      // Ensure we don't accidentally navigate the popout window itself!
+      if (candidateTab && candidateTab.windowId !== popoutWindowId) {
+        tab = candidateTab;
+      }
     } catch (e) {
       tab = null;
     }
@@ -140,7 +273,7 @@ async function playQueueIndex(index, targetTabId = null) {
     await chrome.tabs.update(tab.id, { url: video.url, active: true });
     return { success: true, index, video, tabId: tab.id };
   } else {
-    // Open new tab
+    // Open new tab in a normal browser window
     const newTab = await chrome.tabs.create({ url: video.url, active: true });
     return { success: true, index, video, tabId: newTab.id };
   }
@@ -388,6 +521,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           }
         }
         sendResponse({ success: true });
+        break;
+      }
+
+      case 'OPEN_POPOUT_WINDOW': {
+        const res = await openOrFocusPopoutWindow();
+        sendResponse(res);
+        break;
+      }
+
+      case 'GET_TARGET_YOUTUBE_TAB': {
+        const targetTab = await getTargetTab();
+        sendResponse({ tab: targetTab });
+        break;
+      }
+
+      case 'UPDATE_FLOATING_HUD_VISIBILITY': {
+        const res = await updateFloatingHudVisibility(request.show);
+        sendResponse(res);
         break;
       }
 

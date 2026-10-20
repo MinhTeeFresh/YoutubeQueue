@@ -36,7 +36,9 @@
     prev: `<svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>`,
     repeatOne: `<svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4H13z"/></svg>`,
     minimize: `<svg viewBox="0 0 24 24"><path d="M19 13H5v-2h14v2z"/></svg>`,
-    expand: `<svg viewBox="0 0 24 24"><path d="M12 8l-6 6 1.41 1.41L12 10.83l4.59 4.58L18 14z"/></svg>`
+    expand: `<svg viewBox="0 0 24 24"><path d="M12 8l-6 6 1.41 1.41L12 10.83l4.59 4.58L18 14z"/></svg>`,
+    popout: `<svg viewBox="0 0 24 24"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>`,
+    close: `<svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>`
   };
 
   // Utility to extract video ID from URL
@@ -475,89 +477,106 @@
     }
   }
 
-  // Floating HUD Controller on YouTube Page
+  let hudDismissed = false;
+
+  // Floating Popout Queue Launcher on YouTube Page
   function createFloatingHUD() {
     if (document.getElementById('ytq-floating-hud')) return;
 
     const hud = document.createElement('div');
     hud.id = 'ytq-floating-hud';
-    hud.className = 'ytq-hud-minimized';
+    hud.title = 'Open entire YouTube Queue in a movable window (drag to any monitor)';
 
     hud.innerHTML = `
-      <div class="ytq-hud-badge" id="ytq-hud-toggle" title="Click to expand/minimize YouTube Queue HUD">
-        ${ICONS.queue}
-        <span id="ytq-hud-count">0</span>
-      </div>
-      <div class="ytq-hud-expanded-view" style="display:flex;align-items:center;gap:10px;">
-        <div class="ytq-hud-info">
-          <div class="ytq-hud-now-playing" id="ytq-hud-title">Queue is empty</div>
-          <div class="ytq-hud-next" id="ytq-hud-next-title"></div>
+      <div class="ytq-hud-main" id="ytq-hud-open-btn">
+        <div class="ytq-hud-badge">
+          ${ICONS.queue}
+          <span id="ytq-hud-count">0</span>
         </div>
-        <button class="ytq-hud-btn" id="ytq-hud-loop" title="Loop Current Video (Pause queue advance)">${ICONS.repeatOne}</button>
-        <button class="ytq-hud-btn" id="ytq-hud-prev" title="Previous Video">${ICONS.prev}</button>
-        <button class="ytq-hud-btn" id="ytq-hud-play" title="Play / Pause">${ICONS.play}</button>
-        <button class="ytq-hud-btn" id="ytq-hud-next" title="Next Video">${ICONS.next}</button>
+        <div class="ytq-hud-text">
+          <span class="ytq-hud-title">Queue Window</span>
+          <span class="ytq-hud-subtitle" id="ytq-hud-sub">Move to another monitor</span>
+        </div>
+        <div class="ytq-hud-popout-icon">${ICONS.popout}</div>
       </div>
+      <button class="ytq-hud-close-btn" id="ytq-hud-dismiss" title="Hide floating button on page">${ICONS.close}</button>
     `;
 
     document.body.appendChild(hud);
 
-    // Toggle expand/collapse
-    hud.querySelector('#ytq-hud-toggle').addEventListener('click', () => {
-      hud.classList.toggle('ytq-hud-minimized');
+    // Click main area -> open/focus popout window
+    hud.querySelector('#ytq-hud-open-btn').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await safeSendMessage({ action: 'OPEN_POPOUT_WINDOW' });
     });
 
-    hud.querySelector('#ytq-hud-loop').addEventListener('click', async () => {
-      const video = document.querySelector('video');
-      const nowLooped = !isVideoLooped();
-      if (video) {
-        video.loop = nowLooped;
-      }
-      state.settings.loopCurrentVideo = nowLooped;
-      await safeSendMessage({
-        action: 'UPDATE_SETTINGS',
-        settings: { loopCurrentVideo: nowLooped }
-      });
-      updateFloatingHUD();
-      showToast(
-        nowLooped
-          ? 'Loop active: Video will repeat without advancing'
-          : 'Loop disabled: Queue will advance normally',
-        'info'
-      );
+    // Dismiss button -> hide launcher on page for this session
+    hud.querySelector('#ytq-hud-dismiss').addEventListener('click', (e) => {
+      e.stopPropagation();
+      hudDismissed = true;
+      hud.style.display = 'none';
+      showToast('Queue launcher hidden. Open from extension icon to view.', 'info', 2500);
     });
 
-    hud.querySelector('#ytq-hud-prev').addEventListener('click', async () => {
-      await safeSendMessage({ action: 'PLAY_PREV' });
-      syncState();
-    });
-
-    hud.querySelector('#ytq-hud-next').addEventListener('click', async () => {
-      await safeSendMessage({ action: 'PLAY_NEXT' });
-      syncState();
-    });
-
-    hud.querySelector('#ytq-hud-play').addEventListener('click', () => {
-      const video = document.querySelector('video');
-      if (video) {
-        if (video.paused) video.play();
-        else video.pause();
-      }
-    });
+    // Make floating button smoothly draggable on YouTube screen
+    makeDraggable(hud);
 
     updateFloatingHUD();
+  }
+
+  // Draggable helper for the launcher widget
+  function makeDraggable(element) {
+    let isDragging = false;
+    let startX = 0, startY = 0;
+    let initialLeft = 0, initialTop = 0;
+
+    element.addEventListener('mousedown', (e) => {
+      if (e.target.closest('#ytq-hud-dismiss')) return;
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      const rect = element.getBoundingClientRect();
+      initialLeft = rect.left;
+      initialTop = rect.top;
+      element.style.bottom = 'auto';
+      element.style.right = 'auto';
+      element.style.left = `${initialLeft}px`;
+      element.style.top = `${initialTop}px`;
+      element.classList.add('ytq-dragging');
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      const newLeft = Math.max(10, Math.min(window.innerWidth - element.offsetWidth - 10, initialLeft + dx));
+      const newTop = Math.max(10, Math.min(window.innerHeight - element.offsetHeight - 10, initialTop + dy));
+      element.style.left = `${newLeft}px`;
+      element.style.top = `${newTop}px`;
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        element.classList.remove('ytq-dragging');
+      }
+    });
   }
 
   function updateFloatingHUD() {
     const hud = document.getElementById('ytq-floating-hud');
     if (!hud) return;
 
-    const countElem = hud.querySelector('#ytq-hud-count');
-    const titleElem = hud.querySelector('#ytq-hud-title');
-    const nextElem = hud.querySelector('#ytq-hud-next-title');
-    const loopBtn = hud.querySelector('#ytq-hud-loop');
+    // Respect user setting to disable floating HUD
+    if (hudDismissed || (state.settings && state.settings.showFloatingHud === false)) {
+      hud.style.display = 'none';
+      return;
+    }
 
+    const countElem = hud.querySelector('#ytq-hud-count');
+    const subElem = hud.querySelector('#ytq-hud-sub');
     const total = state.queue.length;
+
     if (countElem) countElem.textContent = total;
 
     // Hide HUD if queue is empty
@@ -568,27 +587,12 @@
       hud.style.display = 'flex';
     }
 
-    const currentItem = state.currentIndex >= 0 && state.currentIndex < total ? state.queue[state.currentIndex] : null;
-    const nextItem = getNextVideo();
-    const isLooped = isVideoLooped();
-
-    if (loopBtn) {
-      loopBtn.classList.toggle('active', isLooped);
-      loopBtn.title = isLooped
-        ? 'Video is Looped (Queue will NOT advance until specified). Click to unloop.'
-        : 'Loop Current Video (Keep repeating without advancing queue)';
-    }
-
-    if (titleElem) {
-      titleElem.textContent = currentItem ? currentItem.title : `${total} videos in queue`;
-    }
-    if (nextElem) {
-      if (isLooped) {
-        nextElem.textContent = '🔂 Looped — will repeat';
-        nextElem.style.color = '#ff335c';
+    if (subElem) {
+      const currentItem = state.currentIndex >= 0 && state.currentIndex < total ? state.queue[state.currentIndex] : null;
+      if (currentItem) {
+        subElem.textContent = truncate(currentItem.title, 24);
       } else {
-        nextElem.textContent = nextItem ? `Next: ${nextItem.title}` : (total > 0 ? 'End of queue' : '');
-        nextElem.style.color = '#9ca3af';
+        subElem.textContent = `${total} video${total === 1 ? '' : 's'} ready`;
       }
     }
   }
@@ -732,6 +736,15 @@
       state.settings.loopCurrentVideo = !!request.loop;
       updateFloatingHUD();
       sendResponse({ success: true, looped: isVideoLooped(video) });
+    } else if (request.action === 'UPDATE_FLOATING_HUD_VISIBILITY') {
+      if (state.settings) {
+        state.settings.showFloatingHud = !!request.show;
+      }
+      if (request.show) {
+        hudDismissed = false;
+      }
+      updateFloatingHUD();
+      sendResponse({ success: true });
     } else if (request.action === 'QUERY_VIDEO_LOOP') {
       sendResponse({ looped: isVideoLooped() });
     }

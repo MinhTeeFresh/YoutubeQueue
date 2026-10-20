@@ -49,6 +49,14 @@ body {
   user-select: none;
 }
 
+body.is-popout {
+  width: 100vw;
+  height: 100vh;
+  min-width: 320px;
+  min-height: 400px;
+}
+
+
 .app-container {
   display: flex;
   flex-direction: column;

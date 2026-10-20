@@ -3,10 +3,36 @@ import { extractVideoId, buildWatchUrl } from '../utils/youtube.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
+  // Check if running as a standalone popout window
+  const urlParams = new URLSearchParams(window.location.search);
+  const isPopout = urlParams.get('popout') === 'true';
+
+  if (isPopout) {
+    document.body.classList.add('is-popout');
+    document.title = 'YouTube Queue (Popout Window)';
+
+    // Save window size and position when resized on any monitor
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        chrome.storage.local.set({
+          popoutBounds: {
+            left: window.screenX,
+            top: window.screenY,
+            width: window.outerWidth,
+            height: window.outerHeight
+          }
+        });
+      }, 300);
+    });
+  }
+
   // DOM Elements
   const queueList = document.getElementById('queueList');
   const emptyState = document.getElementById('emptyState');
   const queueCounter = document.getElementById('queueCounter');
+  const btnPopout = document.getElementById('btnPopout');
   const btnCopyCurrentUrl = document.getElementById('btnCopyCurrentUrl');
   const formAddManual = document.getElementById('formAddManual');
   const inputManualUrl = document.getElementById('inputManualUrl');
@@ -36,6 +62,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toggleLoop = document.getElementById('toggleLoop');
   const toggleRespectLoop = document.getElementById('toggleRespectLoop');
   const toggleLoopCurrentVideo = document.getElementById('toggleLoopCurrentVideo');
+  const toggleFloatingHud = document.getElementById('toggleFloatingHud');
+
+  // Configure Popout Button
+  if (btnPopout) {
+    if (isPopout) {
+      btnPopout.title = 'Close movable queue window';
+      btnPopout.classList.add('active');
+      btnPopout.innerHTML = `
+        <svg viewBox="0 0 24 24" class="svg-icon">
+          <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+        </svg>
+      `;
+      btnPopout.addEventListener('click', () => {
+        window.close();
+      });
+    } else {
+      btnPopout.addEventListener('click', async () => {
+        await chrome.runtime.sendMessage({ action: 'OPEN_POPOUT_WINDOW' });
+        window.close();
+      });
+    }
+  }
 
   // Local State
   let queue = [];
@@ -47,8 +95,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     timerDurationSeconds: 180,
     loopQueue: false,
     respectVideoLoop: true,
-    loopCurrentVideo: false
+    loopCurrentVideo: false,
+    showFloatingHud: true
   };
+
+  // Helper to get active YouTube tab across all windows (for popout window support)
+  async function getActiveYouTubeTab() {
+    if (!isPopout) {
+      try {
+        const [currTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (currTab && currTab.url && currTab.url.includes('youtube.com')) {
+          return currTab;
+        }
+      } catch (e) { }
+    }
+    const res = await chrome.runtime.sendMessage({ action: 'GET_TARGET_YOUTUBE_TAB' });
+    return res ? res.tab : null;
+  }
 
   let draggedItemIndex = null;
   let toastTimeout = null;
@@ -86,6 +149,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     toggleLoop.checked = !!settings.loopQueue;
     if (toggleRespectLoop) toggleRespectLoop.checked = settings.respectVideoLoop !== false;
     if (toggleLoopCurrentVideo) toggleLoopCurrentVideo.checked = !!settings.loopCurrentVideo;
+    if (toggleFloatingHud) toggleFloatingHud.checked = settings.showFloatingHud !== false;
 
     if (settings.autoplayMode === 'timer') {
       rowEndDelay.style.display = 'none';
@@ -130,7 +194,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       // Check active tab if video.loop is set natively on YouTube
-      chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      getActiveYouTubeTab().then(tab => {
         if (tab && tab.id && tab.url && tab.url.includes('youtube.com')) {
           chrome.tabs.sendMessage(tab.id, { action: 'QUERY_VIDEO_LOOP' }, (res) => {
             if (!chrome.runtime.lastError && res) {
@@ -311,9 +375,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Copy Current Viewed URL & Add to Queue
   btnCopyCurrentUrl.addEventListener('click', async () => {
     try {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const activeTab = await getActiveYouTubeTab();
       if (!activeTab || !activeTab.url) {
-        showToast('No active tab found');
+        showToast('No active YouTube video found');
         return;
       }
 
@@ -484,6 +548,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     showToast(`Loop queue ${settings.loopQueue ? 'enabled' : 'disabled'}`);
   });
 
+  // Settings: Floating HUD Toggle
+  toggleFloatingHud.addEventListener('change', async () => {
+    settings.showFloatingHud = toggleFloatingHud.checked;
+    await updateSettings({ showFloatingHud: settings.showFloatingHud });
+    getActiveYouTubeTab().then(tab => {
+      if (tab && tab.id && tab.url && tab.url.includes('youtube.com')) {
+        chrome.tabs.sendMessage(tab.id, {
+          action: 'UPDATE_FLOATING_HUD_VISIBILITY',
+          show: settings.showFloatingHud
+        });
+      }
+    });
+    showToast(`YouTube floating button ${settings.showFloatingHud ? 'enabled' : 'disabled'}`);
+  });
+
   // Settings: Respect Looped Video Toggle
   if (toggleRespectLoop) {
     toggleRespectLoop.addEventListener('change', async () => {
@@ -503,7 +582,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const newLoopState = toggleLoopCurrentVideo.checked;
       settings.loopCurrentVideo = newLoopState;
 
-      chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      getActiveYouTubeTab().then(tab => {
         if (tab && tab.id && tab.url && tab.url.includes('youtube.com')) {
           chrome.tabs.sendMessage(tab.id, { action: 'SET_VIDEO_LOOP', loop: newLoopState });
         }
@@ -519,13 +598,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // Settings: Floating YouTube Button Toggle
+  if (toggleFloatingHud) {
+    toggleFloatingHud.addEventListener('change', async () => {
+      const isEnabled = toggleFloatingHud.checked;
+      settings.showFloatingHud = isEnabled;
+      await updateSettings({ showFloatingHud: isEnabled });
+      getActiveYouTubeTab().then(tab => {
+        if (tab && tab.id && tab.url && tab.url.includes('youtube.com')) {
+          chrome.tabs.sendMessage(tab.id, {
+            action: 'UPDATE_FLOATING_HUD_VISIBILITY',
+            show: settings.showFloatingHud
+          });
+        }
+      });
+      showToast(`Floating HUD ${settings.showFloatingHud ? 'enabled' : 'disabled'}`);
+    });
+  }
+
   // Now Playing: Loop Current Video Button
   if (npBtnLoopVideo) {
     npBtnLoopVideo.addEventListener('click', async () => {
       const newLoopState = !settings.loopCurrentVideo;
       settings.loopCurrentVideo = newLoopState;
 
-      chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      getActiveYouTubeTab().then(tab => {
         if (tab && tab.id && tab.url && tab.url.includes('youtube.com')) {
           chrome.tabs.sendMessage(tab.id, { action: 'SET_VIDEO_LOOP', loop: newLoopState });
         }

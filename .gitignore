@@ -51,6 +51,9 @@ coverage.xml
 .pytest_cache/
 cover/
 
+# Work State
+WORK_STATE.md
+
 # Translations
 *.mo
 *.pot
